@@ -46,7 +46,8 @@ if archivo_mes is not None:
         df = df[df['DESCRIPCION'].astype(str).str.strip() != ""]
         
         # Extraer la primera palabra como Categoría de forma limpia
-        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].astype(str).str.strip().apply(lambda x: x.split()[0].upper() if len(x.split()) > 0 else "VARIOS")
+        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].astype(str).str.strip().str.split().str[0].str.upper()
+df['CATEGORIA_INTERNA'] = df['CATEGORIA_INTERNA'].fillna("VARIOS")
         
         # Filtro de seguridad para ignorar textos repetidos de cabecera
         filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD', 'STATUS', 'ID TIPO']
