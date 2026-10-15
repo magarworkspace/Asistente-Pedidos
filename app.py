@@ -5,15 +5,6 @@ import io
 # Configuración visual para celular
 st.set_page_config(page_title="Asistente de Pedidos", layout="centered", page_icon="📱")
 
-# Estilos personalizados (Botones estilizados)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        border-radius: 8px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
 st.title("📱 Mi Captura de Pedidos")
 st.write("---")
 
@@ -27,32 +18,41 @@ if 'confirmar_borrado' not in st.session_state:
 archivo_mes = st.file_uploader("📂 1. Arrastra aquí el Excel o CSV del proveedor", type=["csv", "xlsx"])
 
 if archivo_mes is not None:
-    # Leer el archivo (funciona con Excel o CSV)
+    # Leer el archivo detectando el formato
     if archivo_mes.name.endswith('.csv'):
         df = pd.read_csv(archivo_mes)
     else:
         df = pd.read_excel(archivo_mes)
     
-    # Limpieza básica de nombres de columnas
+    # Limpieza estándar de encabezados
     df.columns = df.columns.str.strip().str.upper()
     
-    # Comprobar columnas obligatorias
+    # Forzar la búsqueda de las columnas correctas limpiando filas vacías superiores
+    if 'DESCRIPCION' not in df.columns:
+        for i in range(min(15, len(df))):
+            if df.iloc[i].astype(str).str.contains('DESCRIPCION', case=False, na=False).any():
+                df.columns = df.iloc[i].str.strip().str.upper()
+                df = df.iloc[i+1:].reset_index(drop=True)
+                break
+
+    # Comprobar columnas obligatorias de trabajo
     if 'ID PRODUCTO' in df.columns and 'DESCRIPCION' in df.columns:
         
         # Entrada del presupuesto de la semana
         presupuesto = st.number_input("💰 Ingresa el Presupuesto Semanal Neto:", min_value=0.0, value=50000.0, step=1000.0)
         
-        # Limpieza profunda de títulos y filas vacías del proveedor
-        df = df.dropna(subset=['DESCRIPCION'])
-        df['DESCRIPCION_STR'] = df['DESCRIPCION'].astype(str).str.strip()
-        df = df[df['DESCRIPCION_STR'] != ""]
+        # Limpiar filas vacías o títulos estorbosos
+        df = df.dropna(subset=['ID PRODUCTO', 'DESCRIPCION'])
+        df = df[df['DESCRIPCION'].astype(str).str.strip() != ""]
         
-        # Extraer la primera palabra de la refacción real
-        df['CATEGORIA_INTERNA'] = df['DESCRIPCION_STR'].apply(lambda x: x.split()[0].upper() if len(x.split()) > 0 else "VARIOS")
+        # Extraer la primera palabra como Categoría de forma limpia
+        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].astype(str).str.strip().apply(lambda x: x.split()[0].upper() if len(x.split()) > 0 else "VARIOS")
         
-        # Eliminar encabezados basura que no son productos
-        filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD']
+        # Filtro de seguridad para ignorar textos repetidos de cabecera
+        filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD', 'STATUS', 'ID TIPO']
         df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
+        
+        # Obtener lista única de categorías
         categorias = sorted(df['CATEGORIA_INTERNA'].unique())
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
@@ -64,7 +64,7 @@ if archivo_mes is not None:
                     if st.button(cat, key=f"btn_{cat}"):
                         st.session_state['cat_actual'] = cat
         else:
-            st.info("No se encontraron categorías válidas en el archivo.")
+            st.info("Buscando productos...")
         
         # Mostrar productos de la categoría seleccionada en ORDEN ALFABÉTICO
         if 'cat_actual' in st.session_state:
@@ -74,9 +74,13 @@ if archivo_mes is not None:
             sub_df = df[df['CATEGORIA_INTERNA'] == cat_sel].sort_values(by='DESCRIPCION')
             
             for idx, row in sub_df.iterrows():
-                id_p = str(int(row['ID PRODUCTO']))
+                try:
+                    id_p = str(int(pd.to_numeric(row['ID PRODUCTO'])))
+                except:
+                    continue
                 desc = row['DESCRIPCION']
-                precio_uni = float(row['PRECIO UNITARIO']) if 'PRECIO UNITARIO' in df.columns else 0.0
+                precio_uni = float(pd.to_numeric(row['PRECIO UNITARIO'], errors='coerce')) if 'PRECIO UNITARIO' in df.columns else 0.0
+                if pd.isna(precio_uni): precio_uni = 0.0
                 
                 # Cuadro de captura de cantidad
                 val_actual = st.session_state['pedido'].get(id_p, 0)
@@ -127,23 +131,20 @@ if archivo_mes is not None:
             
             st.write("---")
             
-            # 📬 FASE 4: MENÚ DE ENVÍO MANUAL (A LOS DE ARRIBA)
+            # 📤 FASE 4: MENÚ DE ENVÍO MANUAL
             st.write("### 📤 Enviar Pedido Solicitado")
-            correo_jefe = st.text_input("📝 Escribe el correo del destinatario (Jefe, Gerente o Proveedor):", placeholder="ejemplo@empresa.com")
+            correo_jefe = st.text_input("📝 Escribe el correo del destinatario:", placeholder="ejemplo@empresa.com")
             
-            # Crear el archivo Excel en la memoria para descarga o envío inmediato
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_pedido.to_excel(writer, index=False, sheet_name='Pedido_Semanal')
             buffer.seek(0)
             
-            if correo_jefe:
-                if st.button("📧 ENVIAR CORREO COMPROBADO"):
-                    st.success(f"¡Simulación de envío exitosa! El archivo con tus cantidades fue enviado al correo: {correo_jefe}")
+            if correo_jefe and st.button("📧 ENVIAR CORREO COMPROBADO"):
+                st.success(f"¡Simulación exitosa! Archivo enviado a: {correo_jefe}")
             
-            # Botón de respaldo para descargar o compartir directo por WhatsApp/Teams
             st.download_button(
-                label="📥 DESCARGAR EXCEL FINAL (Para compartir por WhatsApp/Teams)",
+                label="📥 DESCARGAR EXCEL FINAL",
                 data=buffer,
                 file_name="pedido_semanal_final.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -151,7 +152,7 @@ if archivo_mes is not None:
             
             st.write("---")
             
-            # 4. BOTÓN GENERAL DE CLEAR / BORRAR CON DOBLE CONFIRMACIÓN
+            # 4. BOTÓN GENERAL DE CLEAR / BORRAR
             if not st.session_state['confirmar_borrado']:
                 if st.button("🚨 CLEAR / BORRAR PEDIDO"):
                     st.session_state['confirmar_borrado'] = True
@@ -163,13 +164,12 @@ if archivo_mes is not None:
                     if st.button("✅ SÍ, CONFIRMAR"):
                         st.session_state['pedido'] = {}
                         st.session_state['confirmar_borrado'] = False
-                        st.success("¡Pedido borrado!")
                         st.rerun()
                 with col_no:
                     if st.button("❌ NO, CANCELAR"):
                         st.session_state['confirmar_borrado'] = False
                         st.rerun()
         else:
-            st.info("El carrito está vacío. Escanea o selecciona productos para empezar.")
+            st.info("El carrito está vacío. Selecciona productos arriba para empezar.")
     else:
-        st.error("El archivo no tiene el formato correcto. Asegúrate de que incluya las columnas 'ID PRODUCTO' y 'DESCRIPCION'.")
+        st.error("No se encontraron las columnas 'ID PRODUCTO' y 'DESCRIPCION'. Verifica tu archivo.")
