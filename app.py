@@ -54,16 +54,17 @@ if archivo_mes is not None:
         filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD']
         df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
         categorias = sorted(df['CATEGORIA_INTERNA'].unique())
-
-        categorias = sorted(df['CATEGORIA_INTERNA'].unique())
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
         st.write("### 🗂️ Categorías de Productos")
-        cols = st.columns(3)
-        for i, cat in enumerate(categorias):
-            with cols[i % 3]:
-                if st.button(cat, key=f"btn_{cat}"):
-                    st.session_state['cat_actual'] = cat
+        if categorias:
+            cols = st.columns(3)
+            for i, cat in enumerate(categorias):
+                with cols[i % 3]:
+                    if st.button(cat, key=f"btn_{cat}"):
+                        st.session_state['cat_actual'] = cat
+        else:
+            st.info("No se encontraron categorías válidas en el archivo.")
         
         # Mostrar productos de la categoría seleccionada en ORDEN ALFABÉTICO
         if 'cat_actual' in st.session_state:
@@ -126,7 +127,7 @@ if archivo_mes is not None:
             
             st.write("---")
             
-            # 📬 FASE 4: NUEVO MENÚ DE ENVÍO MANUAL (A LOS DE ARRIBA)
+            # 📬 FASE 4: MENÚ DE ENVÍO MANUAL (A LOS DE ARRIBA)
             st.write("### 📤 Enviar Pedido Solicitado")
             correo_jefe = st.text_input("📝 Escribe el correo del destinatario (Jefe, Gerente o Proveedor):", placeholder="ejemplo@empresa.com")
             
