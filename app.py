@@ -42,8 +42,19 @@ if archivo_mes is not None:
         # Entrada del presupuesto de la semana
         presupuesto = st.number_input("💰 Ingresa el Presupuesto Semanal Neto:", min_value=0.0, value=50000.0, step=1000.0)
         
-        # Crear categorías automáticas basadas en la primera palabra de la descripción
-        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].apply(lambda x: str(x).split()[0].upper() if pd.notnull(x) else "VARIOS")
+        # Limpieza profunda de títulos y filas vacías del proveedor
+        df = df.dropna(subset=['DESCRIPCION'])
+        df['DESCRIPCION_STR'] = df['DESCRIPCION'].astype(str).str.strip()
+        df = df[df['DESCRIPCION_STR'] != ""]
+        
+        # Extraer la primera palabra de la refacción real
+        df['CATEGORIA_INTERNA'] = df['DESCRIPCION_STR'].apply(lambda x: x.split()[0].upper() if len(x.split()) > 0 else "VARIOS")
+        
+        # Eliminar encabezados basura que no son productos
+        filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD']
+        df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
+        categorias = sorted(df['CATEGORIA_INTERNA'].unique())
+
         categorias = sorted(df['CATEGORIA_INTERNA'].unique())
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
