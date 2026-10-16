@@ -24,16 +24,20 @@ if archivo_mes is not None:
     else:
         df = pd.read_excel(archivo_mes)
     
-    # Limpieza estándar de encabezados
-    df.columns = df.columns.str.strip().str.upper()
+    # Limpieza estándar de encabezados para evitar problemas de mayúsculas o espacios
+    df.columns = df.columns.astype(str).str.strip().str.upper()
     
-    # Forzar la búsqueda de las columnas correctas limpiando filas vacías superiores
+    # Forzar la búsqueda de las columnas correctas si vienen abajo de filas vacías
     if 'DESCRIPCION' not in df.columns:
         for i in range(min(15, len(df))):
-            if df.iloc[i].astype(str).str.contains('DESCRIPCION', case=False, na=False).any():
-                df.columns = df.iloc[i].str.strip().str.upper()
+            valores_fila = df.iloc[i].astype(str).str.strip().str.upper().tolist()
+            if 'DESCRIPCION' in valores_fila or any('DESCRIP' in f for f in valores_fila):
+                df.columns = df.iloc[i].astype(str).str.strip().str.upper()
                 df = df.iloc[i+1:].reset_index(drop=True)
                 break
+
+    # Asegurar que limpiamos nombres de columnas clave tras el reajuste
+    df.columns = df.columns.astype(str).str.strip().str.upper()
 
     # Comprobar columnas obligatorias de trabajo
     if 'ID PRODUCTO' in df.columns and 'DESCRIPCION' in df.columns:
@@ -41,20 +45,34 @@ if archivo_mes is not None:
         # Entrada del presupuesto de la semana
         presupuesto = st.number_input("💰 Ingresa el Presupuesto Semanal Neto:", min_value=0.0, value=50000.0, step=1000.0)
         
-        # Limpiar filas vacías o títulos estorbosos
+        # Limpiar filas donde falten los datos principales
         df = df.dropna(subset=['ID PRODUCTO', 'DESCRIPCION'])
         df = df[df['DESCRIPCION'].astype(str).str.strip() != ""]
         
-        # Extraer la primera palabra como Categoría de forma limpia
-        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].astype(str).str.strip().str.split().str[0].str.upper()
-        df['CATEGORIA_INTERNA'] = df['CATEGORIA_INTERNA'].fillna("VARIOS")
+        # Extractor inteligente de categorías compuestas (Une "BALATA DISCO", "BOMBA AGUA", etc.)
+        def extraer_categoria_inteligente(texto):
+            txt = str(texto).strip().upper()
+            palabras = txt.split()
+            if len(palabras) == 0:
+                return "VARIOS"
+            
+            # Si empieza con palabras clave compuestas, las unimos para el botón
+            primera = palabras[0]
+            if primera in ['BALATA', 'BOMBA', 'BASE', 'CABLE', 'BUJE', 'TORNILLO', 'DEPOSITO', 'DUCTO', 'KIT', 'TAPA', 'TAPON', 'VALVULA'] and len(palabras) > 1:
+                segunda = palabras[1]
+                if segunda in ['DISCO', 'TAMBOR', 'AGUA', 'GASOLINA', 'AMORTIGUADOR', 'HORQUILLA', 'BUJIA', 'SELECTOR', 'ESTABILIZADOR', 'ANTICONGELANTE', 'ENTRADA', 'DISTRIBUCION', 'PUNTERIAS', 'RADIADOR', 'IAC']:
+                    return f"{primera} {segunda}"
+            
+            return primera
+
+        df['CATEGORIA_INTERNA'] = df['DESCRIPCION'].apply(extraer_categoria_inteligente)
         
-        # Filtro de seguridad para ignorar textos repetidos de cabecera
-        filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD', 'STATUS', 'ID TIPO']
+        # Filtro de seguridad para ignorar textos repetidos de cabeceras o totales del proveedor
+        filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD', 'STATUS', 'ID TIPO', 'PRECIO', 'MONTO', 'NAN', 'VARIOS']
         df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
         
-        # Obtener lista única de categorías
-        categorias = sorted(df['CATEGORIA_INTERNA'].unique())
+        # Obtener lista única de categorías ordenada alfabéticamente
+        categorias = sorted([c for c in df['CATEGORIA_INTERNA'].unique() if c])
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
         st.write("### 🗂️ Categorías de Productos")
@@ -62,10 +80,10 @@ if archivo_mes is not None:
             cols = st.columns(3)
             for i, cat in enumerate(categorias):
                 with cols[i % 3]:
-                    if st.button(cat, key=f"btn_{cat}"):
+                    if st.button(f"📦 {cat}", key=f"btn_{cat}"):
                         st.session_state['cat_actual'] = cat
         else:
-            st.info("Buscando productos...")
+            st.info("Estructurando el catálogo de refacciones...")
         
         # Mostrar productos de la categoría seleccionada en ORDEN ALFABÉTICO
         if 'cat_actual' in st.session_state:
@@ -83,7 +101,7 @@ if archivo_mes is not None:
                 precio_uni = float(pd.to_numeric(row['PRECIO UNITARIO'], errors='coerce')) if 'PRECIO UNITARIO' in df.columns else 0.0
                 if pd.isna(precio_uni): precio_uni = 0.0
                 
-                # Cuadro de captura de cantidad
+                # Cuadro de captura de cantidad interactivo
                 val_actual = st.session_state['pedido'].get(id_p, 0)
                 nueva_cant = st.number_input(f"{desc} (ID: {id_p})", min_value=0, value=val_actual if isinstance(val_actual, int) else val_actual['cant'], key=f"inp_{id_p}")
                 if nueva_cant > 0:
@@ -142,7 +160,7 @@ if archivo_mes is not None:
             buffer.seek(0)
             
             if correo_jefe and st.button("📧 ENVIAR CORREO COMPROBADO"):
-                st.success(f"¡Simulación exitosa! Archivo enviado a: {correo_jefe}")
+                st.success(f"¡Simulación exitosa! Archivo empaquetado y enviado a: {correo_jefe}")
             
             st.download_button(
                 label="📥 DESCARGAR EXCEL FINAL",
@@ -153,7 +171,7 @@ if archivo_mes is not None:
             
             st.write("---")
             
-            # 4. BOTÓN GENERAL DE CLEAR / BORRAR
+            # 4. BOTÓN GENERAL DE CLEAR / BORRAR CON DOBLE CONFIRMACIÓN
             if not st.session_state['confirmar_borrado']:
                 if st.button("🚨 CLEAR / BORRAR PEDIDO"):
                     st.session_state['confirmar_borrado'] = True
@@ -173,4 +191,4 @@ if archivo_mes is not None:
         else:
             st.info("El carrito está vacío. Selecciona productos arriba para empezar.")
     else:
-        st.error("No se encontraron las columnas 'ID PRODUCTO' y 'DESCRIPCION'. Verifica tu archivo.")
+        st.error("No se encontraron las columnas 'ID PRODUCTO' y 'DESCRIPCION'. Revisa que el nombre esté bien escrito.")
