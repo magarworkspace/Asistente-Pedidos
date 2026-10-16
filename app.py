@@ -23,7 +23,16 @@ if archivo_mes is not None:
     else:
         df = pd.read_excel(archivo_mes)
     
+    # 🔍 LIMPIEZA INTELIGENTE DE ENCABEZADOS (Para que acepte mayúsculas, minúsculas y acentos)
     df.columns = df.columns.astype(str).str.strip().str.upper()
+    df.columns = df.columns.str.replace('Ó', 'O').str.replace('Ú', 'U')
+    
+    # Renombrar variaciones comunes automáticamente para que el sistema no falle
+    for col in df.columns:
+        if 'DESCRIP' in col or 'ARTICULO' in col:
+            df.rename(columns={col: 'DESCRIPCION'}, inplace=True)
+        if 'ID PRODUCTO' in col or 'ID_PRODUCTO' in col or col == 'ID':
+            df.rename(columns={col: 'ID PRODUCTO'}, inplace=True)
     
     if 'ID PRODUCTO' in df.columns and 'DESCRIPCION' in df.columns:
         presupuesto = st.number_input("💰 Ingresa el Presupuesto Semanal Neto:", min_value=0.0, value=50000.0, step=1000.0)
@@ -165,5 +174,4 @@ if archivo_mes is not None:
         else:
             st.info("El carrito está vacío.")
     else:
-        st.error("No se encontraron las columnas en tu Excel.")
-
+        st.error("No se encontraron las columnas en tu Excel. Asegúrate de tener las columnas básicas.")
