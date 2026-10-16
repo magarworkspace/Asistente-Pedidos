@@ -14,43 +14,33 @@ if 'pedido' not in st.session_state:
 if 'confirmar_borrado' not in st.session_state:
     st.session_state['confirmar_borrado'] = False
 
-# 1. CARGA DEL EXCEL DEL MES
+# 1. CARGA DEL EXCEL DEL ME
 archivo_mes = st.file_uploader("📂 1. Arrastra aquí el Excel o CSV del proveedor", type=["csv", "xlsx"])
 
 if archivo_mes is not None:
-    # Leer el archivo detectando el formato
+    # Leer el archivo completo sin importar las filas vacías del inicio
     if archivo_mes.name.endswith('.csv'):
-        df = pd.read_csv(archivo_mes)
+        df = pd.read_csv(archivo_mes, header=None)
     else:
-        df = pd.read_excel(archivo_mes)
+        df = pd.read_excel(archivo_mes, header=None)
     
-    # 🔍 BUSCADOR TODOTERRENO DE ENCABEZADOS
-    # Busca en las primeras 20 filas la fila que contenga la columna de descripción
-    columnas_encontradas = False
-    for i in range(min(20, len(df))):
-        valores_fila = df.iloc[i].astype(str).str.strip().str.upper().tolist()
-        # Buscar coincidencias flojas para la descripción
-        idx_desc = [j for j, v in enumerate(valores_fila) if 'DESCRIP' in v or 'ARTICULO' in v or 'PRODUCTO' in v or 'NOMBRE' in v]
-        idx_id = [j for j, v in enumerate(valores_fila) if 'ID' in v or 'CODIGO' in v or 'CLAVE' in v]
-        
-        if idx_desc and idx_id:
-            # Reasignar los nombres de las columnas basados en esa fila real
-            nuevos_encabezados = df.iloc[i].astype(str).str.strip().str.upper().tolist()
-            # Asegurar nombres limpios estándar para nuestro algoritmo
-            nuevos_encabezados[idx_desc[0]] = 'DESCRIPCION'
-            nuevos_encabezados[idx_id[0]] = 'ID PRODUCTO'
-            
-            df.columns = nuevos_encabezados
-            df = df.iloc[i+1:].reset_index(drop=True)
-            columnas_encontradas = True
+    # 🔍 BUSCADOR DE LA FILA 10 (Saltar filas vacías del proveedor)
+    fila_encabezados = None
+    for idx_fila in range(min(20, len(df))):
+        fila_valores = df.iloc[idx_fila].astype(str).str.strip().str.upper().tolist()
+        if 'DESCRIPCION' in fila_valores or 'ID PRODUCTO' in fila_valores:
+            fila_encabezados = idx_fila
             break
-
-    # Si la búsqueda automática falla, forzar limpieza sobre las columnas actuales
-    if not columnas_encontradas:
+            
+    if fila_encabezados is not None:
+        df.columns = df.iloc[fila_encabezados].astype(str).str.strip().str.upper()
+        df = df.iloc[fila_encabezados + 1:].reset_index(drop=True)
+    else:
         df.columns = df.columns.astype(str).str.strip().str.upper()
-        for col in df.columns:
-            if 'DESCRIP' in col or 'ARTICULO' in col: df.rename(columns={col: 'DESCRIPCION'}, inplace=True)
-            if 'ID' in col or 'CLAVE' in col: df.rename(columns={col: 'ID PRODUCTO'}, inplace=True)
+
+    # Asegurar nombres limpios estándar para nuestro algoritmo
+    df.columns = df.columns.astype(str).str.strip().str.upper()
+    df.rename(columns={'DESCRIPCION': 'DESCRIPCION', 'ID PRODUCTO': 'ID PRODUCTO'}, inplace=True)
 
     # Comprobar si logramos estandarizar las columnas de trabajo
     if 'ID PRODUCTO' in df.columns and 'DESCRIPCION' in df.columns:
@@ -58,10 +48,11 @@ if archivo_mes is not None:
         # Entrada del presupuesto de la semana
         presupuesto = st.number_input("💰 Ingresa el Presupuesto Semanal Neto:", min_value=0.0, value=50000.0, step=1000.0)
         
-        # Limpiar filas vacías
+        # Limpiar filas donde falten los datos principales
         df = df.dropna(subset=['ID PRODUCTO', 'DESCRIPCION'])
+        df = df[df['DESCRIPCION'].astype(str).str.strip() != ""]
         
-        # Extractor ultra-seguro de categorías
+        # Extractor inteligente de categorías compuestas (BALATA DISCO, BOMBA AGUA, etc.)
         def extraer_categoria_robusto(texto):
             txt = str(texto).strip().upper()
             palabras = txt.split()
@@ -81,7 +72,7 @@ if archivo_mes is not None:
         filtro_basura = ['ID', 'TOTAL', '***CAMBIO', 'LISTA', 'ID PRODUCTO', 'DESCRIPCION', 'CANTIDAD', 'STATUS', 'ID TIPO', 'PRECIO', 'MONTO', 'NAN', 'VARIOS']
         df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
         
-        # Generar lista única de categorías
+        # Generar lista única de categorías ordenada alfabéticamente
         categorias = sorted([c for c in df['CATEGORIA_INTERNA'].unique() if str(c).strip()])
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
@@ -93,7 +84,7 @@ if archivo_mes is not None:
                     if st.button(f"📦 {cat}", key=f"btn_{cat}"):
                         st.session_state['cat_actual'] = cat
         else:
-            st.info("Estructurando el catálogo... Si ves este mensaje, verifica los nombres de tus columnas en tu Excel.")
+            st.info("Estructurando el catálogo... Revisa el archivo cargado.")
         
         # Mostrar productos de la categoría seleccionada en ORDEN ALFABÉTICO
         if 'cat_actual' in st.session_state:
@@ -109,14 +100,17 @@ if archivo_mes is not None:
                     continue
                 desc = row['DESCRIPCION']
                 
-                # Buscar columna de precio dinámicamente
-                col_precio = [c for c in df.columns if 'PRECIO' in c or 'UNITARIO' in c]
-                precio_uni = float(pd.to_numeric(row[col_precio[0]], errors='coerce')) if col_precio else 0.0
-                if pd.isna(precio_uni): precio_uni = 0.0
+                # Buscar columna de precio unitario básico (Celda K8 se calcula sobre precio neto)
+                precio_uni = 0.0
+                if 'PRECIO UNITARIO' in df.columns:
+                    precio_uni = float(pd.to_numeric(row['PRECIO UNITARIO'], errors='coerce'))
+                if pd.isna(precio_uni): 
+                    precio_uni = 0.0
                 
                 # Cuadro de captura manual de cantidad
                 val_actual = st.session_state['pedido'].get(id_p, 0)
-                nueva_cant = st.number_input(f"{desc} (ID: {id_p})", min_value=0, value=val_actual if isinstance(val_actual, int) else val_actual['cant'], key=f"inp_{id_p}")
+                cantidad_actual_int = val_actual if isinstance(val_actual, int) else val_actual['cant']
+                nueva_cant = st.number_input(f"{desc} (ID: {id_p})", min_value=0, value=cantidad_actual_int, key=f"inp_{id_p}")
                 if nueva_cant > 0:
                     st.session_state['pedido'][id_p] = {"desc": desc, "cant": nueva_cant, "precio": precio_uni}
                 elif id_p in st.session_state['pedido'] and nueva_cant == 0:
@@ -191,16 +185,14 @@ if archivo_mes is not None:
                     st.rerun()
             else:
                 st.warning("⚠️ ¿Estás seguro de que deseas poner el archivo en blanco otra vez?")
-                col_si, col_no = st.columns(2)
-                with col_si:
-                    if st.button("✅ SÍ, CONFIRMAR"):
-                        st.session_state['pedido'] = {}
-                        st.session_state['confirmar_borrado'] = False
-                        st.rerun()
-                with col_no:
-                    if st.button("❌ NO, CANCELAR"):
-                        st.session_state['confirmar_borrado'] = False
-                        st.rerun()
+                if st.button("✅ SÍ, CONFIRMAR"):
+                    st.session_state['pedido'] = {}
+                    st.session_state['confirmar_borrado'] = False
+                    st.rerun()
+                if st.button("❌ NO, CANCELAR"):
+                    st.session_state['confirmar_borrado'] = False
+                    st.rerun()
         else:
             st.info("El carrito está vacío. Selecciona productos arriba para empezar.")
     else:
+        st.error("No se encontraron las columnas en tu Excel. Asegúrate de tener las columnas básicas.")
