@@ -14,7 +14,7 @@ if 'pedido' not in st.session_state:
 if 'confirmar_borrado' not in st.session_state:
     st.session_state['confirmar_borrado'] = False
 
-# 1. CARGA DEL EXCEL DEL ME
+# 1. CARGA DEL EXCEL DEL MES
 archivo_mes = st.file_uploader("📂 1. Arrastra aquí el Excel o CSV del proveedor", type=["csv", "xlsx"])
 
 if archivo_mes is not None:
@@ -24,9 +24,9 @@ if archivo_mes is not None:
     else:
         df = pd.read_excel(archivo_mes, header=None)
     
-    # 🔍 BUSCADOR DE LA FILA 10 (Saltar filas vacías del proveedor)
+    # 🔍 BUSCADOR DE LA FILA DE ENCABEZADOS (Saltar filas vacías)
     fila_encabezados = None
-    for idx_fila in range(min(20, len(df))):
+    for idx_fila in range(min(25, len(df))):
         fila_valores = df.iloc[idx_fila].astype(str).str.strip().str.upper().tolist()
         if 'DESCRIPCION' in fila_valores or 'ID PRODUCTO' in fila_valores:
             fila_encabezados = idx_fila
@@ -40,7 +40,6 @@ if archivo_mes is not None:
 
     # Asegurar nombres limpios estándar para nuestro algoritmo
     df.columns = df.columns.astype(str).str.strip().str.upper()
-    df.rename(columns={'DESCRIPCION': 'DESCRIPCION', 'ID PRODUCTO': 'ID PRODUCTO'}, inplace=True)
 
     # Comprobar si logramos estandarizar las columnas de trabajo
     if 'ID PRODUCTO' in df.columns and 'DESCRIPCION' in df.columns:
@@ -95,12 +94,12 @@ if archivo_mes is not None:
             
             for idx, row in sub_df.iterrows():
                 try:
-                    id_p = str(int(pd.to_numeric(row['ID PRODUCTO'])))
+                    id_p = str(int(float(row['ID PRODUCTO'])))
                 except:
                     continue
                 desc = row['DESCRIPCION']
                 
-                # Buscar columna de precio unitario básico (Celda K8 se calcula sobre precio neto)
+                # Buscar columna de precio unitario básico
                 precio_uni = 0.0
                 if 'PRECIO UNITARIO' in df.columns:
                     precio_uni = float(pd.to_numeric(row['PRECIO UNITARIO'], errors='coerce'))
@@ -185,13 +184,16 @@ if archivo_mes is not None:
                     st.rerun()
             else:
                 st.warning("⚠️ ¿Estás seguro de que deseas poner el archivo en blanco otra vez?")
-                if st.button("✅ SÍ, CONFIRMAR"):
-                    st.session_state['pedido'] = {}
-                    st.session_state['confirmar_borrado'] = False
-                    st.rerun()
-                if st.button("❌ NO, CANCELAR"):
-                    st.session_state['confirmar_borrado'] = False
-                    st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ SÍ, CONFIRMAR"):
+                        st.session_state['pedido'] = {}
+                        st.session_state['confirmar_borrado'] = False
+                        st.rerun()
+                with col2:
+                    if st.button("❌ NO, CANCELAR"):
+                        st.session_state['confirmar_borrado'] = False
+                        st.rerun()
         else:
             st.info("El carrito está vacío. Selecciona productos arriba para empezar.")
     else:
