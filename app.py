@@ -47,16 +47,15 @@ if archivo_mes is not None:
         
         # Limpiar filas donde falten los datos principales
         df = df.dropna(subset=['ID PRODUCTO', 'DESCRIPCION'])
-        df = df[df['DESCRIPCION'].astype(str).str.strip() != ""]
         
-        # Extractor inteligente de categorías compuestas (Une "BALATA DISCO", "BOMBA AGUA", etc.)
+        # Extractor inteligente de categorías compuestas corregido (Seguro contra números)
         def extraer_categoria_inteligente(texto):
+            # Forzar a string y limpiar espacios
             txt = str(texto).strip().upper()
             palabras = txt.split()
-            if len(palabras) == 0:
+            if len(palabras) == 0 or txt in ['NAN', 'NONE', '']:
                 return "VARIOS"
             
-            # Si empieza con palabras clave compuestas, las unimos para el botón
             primera = palabras[0]
             if primera in ['BALATA', 'BOMBA', 'BASE', 'CABLE', 'BUJE', 'TORNILLO', 'DEPOSITO', 'DUCTO', 'KIT', 'TAPA', 'TAPON', 'VALVULA'] and len(palabras) > 1:
                 segunda = palabras[1]
@@ -72,7 +71,7 @@ if archivo_mes is not None:
         df = df[~df['CATEGORIA_INTERNA'].isin(filtro_basura)]
         
         # Obtener lista única de categorías ordenada alfabéticamente
-        categorias = sorted([c for c in df['CATEGORIA_INTERNA'].unique() if c])
+        categorias = sorted([c for c in df['CATEGORIA_INTERNA'].unique() if str(c).strip()])
         
         # 2. INTERFAZ DE CAPTURA POR BOTONES
         st.write("### 🗂️ Categorías de Productos")
@@ -83,7 +82,7 @@ if archivo_mes is not None:
                     if st.button(f"📦 {cat}", key=f"btn_{cat}"):
                         st.session_state['cat_actual'] = cat
         else:
-            st.info("Estructurando el catálogo de refacciones...")
+            st.info("Catálogo vacío o sin formato reconocido.")
         
         # Mostrar productos de la categoría seleccionada en ORDEN ALFABÉTICO
         if 'cat_actual' in st.session_state:
